@@ -1,0 +1,190 @@
+// This is your Prisma schema file,
+// learn more about it in the docs: https://pris.ly/d/prisma-schema
+
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider = "sqlite"
+  url      = env("DATABASE_URL")
+}
+
+seed {
+  executor = "tsx"
+  path = "./prisma/seed/index.ts"
+}
+
+// Authentication model for ISP owners/admins
+model User {
+  id        String   @id @default(cuid())
+  email     String   @unique
+  name      String?
+  role      Role     @default(ISP_OWNER)
+  password  String
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  @@map("users")
+}
+
+// MikroTik router configuration
+model Router {
+  id          String   @id @default(cuid())
+  name        String
+  host        String
+  port        Int      @default(8728)
+  username    String
+  password    String
+  isActive    Boolean  @default(true)
+  lastSyncAt  DateTime?
+  createdAt   DateTime @default(now())
+  updatedAt   DateTime @updatedAt
+
+  customers Customer[]
+  sessions  Session[]
+
+  @@map("routers")
+}
+
+// Customer model with PPPoE credentials
+model Customer {
+  id           String      @id @default(cuid())
+  username     String      @unique
+  password     String      // Stored encrypted, not plaintext
+  name         String?
+  email        String?     @unique
+  phone        String?
+  address      String?
+  status       CustomerStatus @default(ACTIVE)
+  balance      Float       @default(0)
+  routerId     String
+  planId       String
+  pppoeSecret  String?     // MikroTik PPPoE secret ID
+  lastLoginAt  DateTime?
+  createdAt    DateTime    @default(now())
+  updatedAt    DateTime    @updatedAt
+
+  router   Router      @relation(fields: [routerId], references: [id], onDelete: Cascade)
+  plan     Plan        @relation(fields: [planId], references: [id], onDelete: Restrict)
+  invoices Invoice[]
+  sessions Session[]
+  payments Payment[]
+
+  @@map("customers")
+}
+
+// Bandwidth/Service plans
+model Plan {
+  id          String   @id @default(cuid())
+  name        String   @unique
+  description String?
+  price       Float
+  downloadSpeed Int    // in Mbps
+  uploadSpeed   Int    // in Mbps
+  dataLimit    Int?    // in GB, null for unlimited
+  pppProfile   String  // MikroTik PPP profile name
+  isActive     Boolean  @default(true)
+  createdAt    DateTime @default(now())
+  updatedAt    DateTime @updatedAt
+
+  customers Customer[]
+
+  @@map("plans")
+}
+
+// Invoices for billing
+model Invoice {
+  id          String        @id @default(cuid())
+  invoiceNo   String        @unique
+  customerId  String
+  amount      Float
+  status      InvoiceStatus @default(PENDING)
+  dueDate     DateTime
+  paidAt      DateTime?
+  description String?
+  createdAt   DateTime      @default(now())
+  updatedAt   DateTime      @updatedAt
+
+  customer  Customer  @relation(fields: [customerId], references: [id], onDelete: Cascade)
+  payments  Payment[]
+
+  @@map("invoices")
+}
+
+// Payment records
+model Payment {
+  id          String        @id @default(cuid())
+  invoiceId   String
+  customerId  String
+  amount      Float
+  method      PaymentMethod
+  transactionId String?
+  status      PaymentStatus @default(COMPLETED)
+  paidAt      DateTime      @default(now())
+  createdAt   DateTime      @default(now())
+
+  invoice Invoice @relation(fields: [invoiceId], references: [id], onDelete: Cascade)
+  customer Customer @relation(fields: [customerId], references: [id], onDelete: Cascade)
+
+  @@map("payments")
+}
+
+// PPPoE session logs
+model Session {
+  id          String   @id @default(cuid())
+  customerId  String
+  routerId    String
+  sessionId   String?
+  ipAddress   String?
+  macAddress  String?
+  uptime      Int?     // in seconds
+  bytesIn     BigInt?  // bytes received
+  bytesOut    BigInt?  // bytes sent
+  startTime   DateTime
+  endTime     DateTime?
+  isActive    Boolean  @default(true)
+  createdAt   DateTime @default(now())
+  updatedAt   DateTime @updatedAt
+
+  customer Customer @relation(fields: [customerId], references: [id], onDelete: Cascade)
+  router   Router   @relation(fields: [routerId], references: [id], onDelete: Cascade)
+
+  @@map("sessions")
+}
+
+// Enums
+enum Role {
+  ISP_OWNER
+  ADMIN
+  CUSTOMER
+}
+
+enum CustomerStatus {
+  ACTIVE
+  SUSPENDED
+  DISABLED
+  PENDING
+}
+
+enum InvoiceStatus {
+  PENDING
+  PAID
+  OVERDUE
+  CANCELLED
+}
+
+enum PaymentMethod {
+  CASH
+  BANK_TRANSFER
+  CREDIT_CARD
+  MOBILE_MONEY
+  OTHER
+}
+
+enum PaymentStatus {
+  PENDING
+  COMPLETED
+  FAILED
+  REFUNDED
+}
